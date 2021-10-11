@@ -839,15 +839,91 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
 
 @implementation AFMultipartBody
 
++  (NSStringEncoding)stringEncoding {
+    return NSUTF8StringEncoding;
+}
+
 + (BOOL)writeMultipartBodyForInputFileURL:(NSURL *)inputFileURL
                             outputFileURL:(NSURL *)outputFileURL
                                      name:(NSString *)name
                                  fileName:(NSString *)fileName
                                  mimeType:(NSString *)mimeType
+                          additionalParts:(NSDictionary<NSString *, NSString *> *)additionalParts
                                     error:(NSError * __autoreleasing *)error
 {
     NSParameterAssert(inputFileURL);
     NSParameterAssert(outputFileURL);
+    NSParameterAssert(name);
+    NSParameterAssert(fileName);
+    NSParameterAssert(mimeType);
+    
+    if (![outputFileURL isFileURL]) {
+        NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"Expected URL to be a file URL", @"AFNetworking", nil)};
+        if (error) {
+            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
+        }
+        return NO;
+    } else if ([outputFileURL checkResourceIsReachableAndReturnError:error] == NO) {
+        NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"File URL not reachable.", @"AFNetworking", nil)};
+        if (error) {
+            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
+        }
+        return NO;
+    }
+       
+//    NSStringEncoding stringEncoding = self.stringEncoding;
+    
+    NSOutputStream *outputStream = [NSOutputStream outputStreamWithURL:outputFileURL append:NO];
+    if (outputStream.streamStatus != NSStreamStatusOpen) {
+        NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"File URL not reachable.", @"AFNetworking", nil)};
+        if (error) {
+            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
+        }
+        return NO;
+    }
+
+    BOOL isFirstPart = YES;
+    for (NSString *additionalPartKey in additionalParts) {
+        NSString *additionalPartValue = additionalParts[additionalPartKey];
+        if (![self writeTextPartWithValue:additionalPartValue
+                                     name:additionalPartKey
+                       hasInitialBoundary:isFirstPart
+                         hasFinalBoundary:NO
+                             outputStream:outputStream
+                                    error:error]) {
+            [outputStream close];
+            return NO;
+        }
+        isFirstPart = NO;
+    }
+
+    if (![self writeBodyPartWithInputFileURL:inputFileURL
+                                        name:name
+                                    fileName:fileName
+                                    mimeType:mimeType
+                          hasInitialBoundary:isFirstPart
+                            hasFinalBoundary:YES
+                                outputStream:outputStream
+                                       error:error]) {
+        [outputStream close];
+        return NO;
+    }
+    
+    [outputStream close];
+    
+    return YES;
+}
+
++ (BOOL)writeBodyPartWithInputFileURL:(NSURL *)inputFileURL
+                                 name:(NSString *)name
+                             fileName:(NSString *)fileName
+                             mimeType:(NSString *)mimeType
+                   hasInitialBoundary:(BOOL)hasInitialBoundary
+                     hasFinalBoundary:(BOOL)hasFinalBoundary
+                         outputStream:(NSOutputStream *)outputStream
+                                error:(NSError * __autoreleasing *)error
+{
+    NSParameterAssert(inputFileURL);
     NSParameterAssert(name);
     NSParameterAssert(fileName);
     NSParameterAssert(mimeType);
@@ -866,26 +942,12 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
         return NO;
     }
     
-    if (![outputFileURL isFileURL]) {
-        NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"Expected URL to be a file URL", @"AFNetworking", nil)};
-        if (error) {
-            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
-        }
-        return NO;
-    } else if ([outputFileURL checkResourceIsReachableAndReturnError:error] == NO) {
-        NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"File URL not reachable.", @"AFNetworking", nil)};
-        if (error) {
-            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
-        }
-        return NO;
-    }
-    
     NSDictionary *inputFileAttributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[inputFileURL path] error:error];
     if (!inputFileAttributes) {
         return NO;
     }
     
-    NSStringEncoding stringEncoding = NSUTF8StringEncoding;
+    NSStringEncoding stringEncoding = self.stringEncoding;
     
     NSString *boundary = AFCreateMultipartFormBoundary();
     
@@ -893,34 +955,8 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     [mutableHeaders setValue:[NSString stringWithFormat:@"form-data; name=\"%@\"; filename=\"%@\"", name, fileName] forKey:@"Content-Disposition"];
     [mutableHeaders setValue:mimeType forKey:@"Content-Type"];
     
-    //    AFHTTPBodyPart *bodyPart = [[AFHTTPBodyPart alloc] init];
-    //    bodyPart.stringEncoding = self.stringEncoding;
-    //    bodyPart.headers = mutableHeaders;
-    //    bodyPart.boundary = boundary;
-    //    bodyPart.body = fileURL;
-    //    bodyPart.bodyContentLength = [fileAttributes[NSFileSize] unsignedLongLongValue];
-    
-    //    [self writeMultipartBody:outputStream
-    //                    bodyPart:bodyPart
-    //              stringEncoding:self.stringEncoding];
-    //}
-    //
-    //+ (void)writeMultipartBody:(NSOutputStream *)outputStream
-    //                  bodyPart:(AFHTTPBodyPart *)bodyPart
-    //            stringEncoding:(NSStringEncoding)stringEncoding {
-    //    bodyPart.hasInitialBoundary = YES;
-    //    bodyPart.hasFinalBoundary = YES;
-    
     NSInputStream *inputStream = [NSInputStream inputStreamWithURL:inputFileURL];
-    if ([inputStream streamStatus] != NSStreamStatusOpen) {
-        NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"File URL not reachable.", @"AFNetworking", nil)};
-        if (error) {
-            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
-        }
-        return NO;
-    }
-    NSOutputStream *outputStream = [NSOutputStream outputStreamWithURL:outputFileURL append:NO];
-    if ([outputStream streamStatus] != NSStreamStatusOpen) {
+    if (inputStream.streamStatus != NSStreamStatusOpen) {
         NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"File URL not reachable.", @"AFNetworking", nil)};
         if (error) {
             *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
@@ -928,63 +964,80 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
         return NO;
     }
     
-    //    - (NSInteger)read:(uint8_t *)buffer
-    //maxLength:(NSUInteger)length
-    //    {
-    //        self.streamStatus = NSStreamStatusOpen;
-    //        if ([self streamStatus] == NSStreamStatusOpen) {
-    //            return 0;
-    //        }
-    
-    //    while (YES) {
-    //        if (![bodyPart hasBytesAvailable]) {
-    //            break;
-    //        }
-    //
-    //        const NSUInteger maxLength = 1024 * 16;
-    //        NSInteger totalNumberOfBytesRead = 0;
-    //        NSInteger numberOfBytesRead = [bodyPart read:&buffer[totalNumberOfBytesRead] maxLength:maxLength];
-    //        if (numberOfBytesRead == -1) {
-    //            if (error) {
-    //                *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
-    //            }
-    //
-    //            return NO;
-    //            self.streamError = bodyPart.inputStream.streamError;
-    //            break;
-    //        } else {
-    //            totalNumberOfBytesRead += numberOfBytesRead;
-    //        }
-    //    }
-    
-    
-    //    - (NSInteger)read:(uint8_t *)buffer
-    //maxLength:(NSUInteger)length
-    //    {
-    //        NSInteger totalNumberOfBytesRead = 0;
-    //
-    //        if (_phase == AFEncapsulationBoundaryPhase) {
-    NSData *encapsulationBoundaryData = [AFMultipartFormInitialBoundary(boundary) dataUsingEncoding:stringEncoding];
+    NSData *encapsulationBoundaryData = [(hasInitialBoundary
+                                          ? AFMultipartFormInitialBoundary(boundary)
+                                          : AFMultipartFormEncapsulationBoundary(boundary)) dataUsingEncoding:stringEncoding];
     if (![self writeData:encapsulationBoundaryData outputStream:outputStream error:error]) {
+        [inputStream close];
         return NO;
     }
     
-    NSDictionary *headers = [self headersWithName:name
-                                         fileName:fileName
-                                         mimeType:mimeType];
+    NSDictionary *headers = [self headersForBodyWithName:name
+                                                fileName:fileName
+                                                mimeType:mimeType];
     NSString *headersString = [self stringForHeaders:headers];
     NSData *headersData = [headersString dataUsingEncoding:stringEncoding];
     if (![self writeData:headersData outputStream:outputStream error:error]) {
+        [inputStream close];
         return NO;
     }
     
     if (![self writeBodyInputStream:inputStream
                        outputStream:outputStream
                               error:error]) {
+        [inputStream close];
         return NO;
     }
     
-    NSData *closingBoundaryData = [AFMultipartFormFinalBoundary(boundary) dataUsingEncoding:stringEncoding];
+    NSData *closingBoundaryData = (hasFinalBoundary
+                                   ? [AFMultipartFormFinalBoundary(boundary) dataUsingEncoding:stringEncoding]
+                                   : [NSData data]);
+    if (![self writeData:closingBoundaryData outputStream:outputStream error:error]) {
+        [inputStream close];
+        return NO;
+    }
+    
+    [inputStream close];
+    return YES;
+}
+
++ (BOOL)writeTextPartWithValue:(NSString *)value
+                          name:(NSString *)name
+            hasInitialBoundary:(BOOL)hasInitialBoundary
+              hasFinalBoundary:(BOOL)hasFinalBoundary
+                  outputStream:(NSOutputStream *)outputStream
+                         error:(NSError * __autoreleasing *)error
+{
+    NSParameterAssert(value.length > 0);
+    NSParameterAssert(name.length > 0);
+
+    NSStringEncoding stringEncoding = self.stringEncoding;
+    
+    NSString *boundary = AFCreateMultipartFormBoundary();
+    
+    NSData *encapsulationBoundaryData = [(hasInitialBoundary
+                                          ? AFMultipartFormInitialBoundary(boundary)
+                                          : AFMultipartFormEncapsulationBoundary(boundary)) dataUsingEncoding:stringEncoding];
+    if (![self writeData:encapsulationBoundaryData outputStream:outputStream error:error]) {
+        return NO;
+    }
+    
+    NSMutableDictionary<NSString *, NSString *> *headers = [NSMutableDictionary new];
+    [headers setValue:[NSString stringWithFormat:@"form-data; name=\"%@\"", name] forKey:@"Content-Disposition"];
+    NSString *headersString = [self stringForHeaders:headers];
+    NSData *headersData = [headersString dataUsingEncoding:stringEncoding];
+    if (![self writeData:headersData outputStream:outputStream error:error]) {
+        return NO;
+    }
+
+    NSData *valueData = [value dataUsingEncoding:stringEncoding];
+    if (![self writeData:valueData outputStream:outputStream error:error]) {
+        return NO;
+    }
+    
+    NSData *closingBoundaryData = (hasFinalBoundary
+                                   ? [AFMultipartFormFinalBoundary(boundary) dataUsingEncoding:stringEncoding]
+                                   : [NSData data]);
     if (![self writeData:closingBoundaryData outputStream:outputStream error:error]) {
         return NO;
     }
@@ -1050,9 +1103,9 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     return YES;
 }
 
-+ (NSDictionary *)headersWithName:(NSString *)name
-                         fileName:(NSString *)fileName
-                         mimeType:(NSString *)mimeType
++ (NSDictionary *)headersForBodyWithName:(NSString *)name
+                                fileName:(NSString *)fileName
+                                mimeType:(NSString *)mimeType
 {
     NSMutableDictionary *mutableHeaders = [NSMutableDictionary dictionary];
     [mutableHeaders setValue:[NSString stringWithFormat:@"form-data; name=\"%@\"; filename=\"%@\"", name, fileName] forKey:@"Content-Disposition"];

@@ -485,6 +485,7 @@ FOUNDATION_EXPORT NSString * const AFURLRequestSerializationErrorDomain;
                                      name:(NSString *)name
                                  fileName:(NSString *)fileName
                                  mimeType:(NSString *)mimeType
+                          additionalParts:(NSDictionary<NSString *, NSString *> *)additionalParts
                                     error:(NSError * __autoreleasing *)error;
 
 @end
