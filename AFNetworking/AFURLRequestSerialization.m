@@ -879,6 +879,7 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
                                      name:(NSString *)name
                                  fileName:(NSString *)fileName
                                  mimeType:(NSString *)mimeType
+                                 boundary:(NSString *)boundary
                           additionalParts:(NSDictionary<NSString *, NSString *> *)additionalParts
                                     error:(NSError * __autoreleasing *)error
 {
@@ -925,6 +926,7 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
         NSString *additionalPartValue = additionalParts[additionalPartKey];
         if (![self writeTextPartWithValue:additionalPartValue
                                      name:additionalPartKey
+                                 boundary:boundary
                        hasInitialBoundary:isFirstPart
                          hasFinalBoundary:NO
                              outputStream:outputStream
@@ -939,6 +941,7 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
                                         name:name
                                     fileName:fileName
                                     mimeType:mimeType
+                                    boundary:boundary
                           hasInitialBoundary:isFirstPart
                             hasFinalBoundary:YES
                                 outputStream:outputStream
@@ -959,10 +962,16 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     return YES;
 }
 
++ (NSString *)createMultipartFormBoundary
+{
+    return AFCreateMultipartFormBoundary();
+}
+
 + (BOOL)writeBodyPartWithInputFileURL:(NSURL *)inputFileURL
                                  name:(NSString *)name
                              fileName:(NSString *)fileName
                              mimeType:(NSString *)mimeType
+                             boundary:(NSString *)boundary
                    hasInitialBoundary:(BOOL)hasInitialBoundary
                      hasFinalBoundary:(BOOL)hasFinalBoundary
                          outputStream:(NSOutputStream *)outputStream
@@ -993,8 +1002,6 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     }
     
     NSStringEncoding stringEncoding = self.stringEncoding;
-    
-    NSString *boundary = AFCreateMultipartFormBoundary();
     
     NSMutableDictionary *mutableHeaders = [NSMutableDictionary dictionary];
     [mutableHeaders setValue:[NSString stringWithFormat:@"form-data; name=\"%@\"; filename=\"%@\"", name, fileName] forKey:@"Content-Disposition"];
@@ -1065,6 +1072,7 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
 
 + (BOOL)writeTextPartWithValue:(NSString *)value
                           name:(NSString *)name
+                      boundary:(NSString *)boundary
             hasInitialBoundary:(BOOL)hasInitialBoundary
               hasFinalBoundary:(BOOL)hasFinalBoundary
                   outputStream:(NSOutputStream *)outputStream
@@ -1074,8 +1082,6 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     NSParameterAssert(name.length > 0);
 
     NSStringEncoding stringEncoding = self.stringEncoding;
-    
-    NSString *boundary = AFCreateMultipartFormBoundary();
     
     NSData *encapsulationBoundaryData = [(hasInitialBoundary
                                           ? AFMultipartFormInitialBoundary(boundary)

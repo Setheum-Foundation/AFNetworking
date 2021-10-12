@@ -480,11 +480,14 @@ FOUNDATION_EXPORT NSString * const AFURLRequestSerializationErrorDomain;
 
 @interface AFMultipartBody: NSObject
 
++ (NSString *)createMultipartFormBoundary;
+
 + (BOOL)writeMultipartBodyForInputFileURL:(NSURL *)inputFileURL
                             outputFileURL:(NSURL *)outputFileURL
                                      name:(NSString *)name
                                  fileName:(NSString *)fileName
                                  mimeType:(NSString *)mimeType
+                                 boundary:(NSString *)boundary
                           additionalParts:(NSDictionary<NSString *, NSString *> *)additionalParts
                                     error:(NSError * __autoreleasing *)error;
 
