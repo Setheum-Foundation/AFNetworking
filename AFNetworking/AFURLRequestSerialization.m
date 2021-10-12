@@ -27,7 +27,38 @@
 #import <CoreServices/CoreServices.h>
 #endif
 
+#import <CocoaLumberjack/CocoaLumberjack.h>
+
+#ifdef DEBUG
+static const NSUInteger ddLogLevel = DDLogLevelAll;
+#else
+static const NSUInteger ddLogLevel = DDLogLevelInfo;
+#endif
+
 NSString * const AFURLRequestSerializationErrorDomain = @"com.alamofire.error.serialization.request";
+
+#pragma mark -
+
+@interface AFStreamDelegate : NSObject <NSStreamDelegate>
+
+@property (atomic) BOOL hadError;
+
+@end
+
+#pragma mark -
+
+@implementation AFStreamDelegate
+
+- (void)stream:(NSStream *)aStream handleEvent:(NSStreamEvent)eventCode {
+    if (eventCode == NSStreamEventErrorOccurred) {
+        self.hadError = YES;
+    }
+}
+
+@end
+
+#pragma mark -
+
 //NSString * const AFNetworkingOperationFailingURLRequestErrorKey = @"com.alamofire.serialization.request.error.response";
 //
 //typedef NSString * (^AFQueryStringSerializationBlock)(NSURLRequest *request, id parameters, NSError *__autoreleasing *error);
@@ -863,17 +894,19 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
             *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
         }
         return NO;
-    } else if ([outputFileURL checkResourceIsReachableAndReturnError:error] == NO) {
-        NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"File URL not reachable.", @"AFNetworking", nil)};
-        if (error) {
-            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:userInfo];
-        }
-        return NO;
     }
-       
-//    NSStringEncoding stringEncoding = self.stringEncoding;
     
+    // TODO: Audit streamStatus
     NSOutputStream *outputStream = [NSOutputStream outputStreamWithURL:outputFileURL append:NO];
+    AFStreamDelegate *outputStreamDelegate = [AFStreamDelegate new];
+    outputStream.delegate = outputStreamDelegate;
+    [outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+    [outputStream open];
+
+    DDLogInfo(@"outputFileURL: %@", outputFileURL);
+    DDLogInfo(@"outputStream.streamStatus: %lu", (unsigned long) outputStream.streamStatus);
+    [DDLog flushLog];                                                                                              \
+    
     if (outputStream.streamStatus != NSStreamStatusOpen) {
         NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"File URL not reachable.", @"AFNetworking", nil)};
         if (error) {
@@ -881,6 +914,11 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
         }
         return NO;
     }
+    
+    void (^closeOutputStream)(void) = ^{
+        [outputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+        [outputStream close];
+    };
 
     BOOL isFirstPart = YES;
     for (NSString *additionalPartKey in additionalParts) {
@@ -891,7 +929,7 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
                          hasFinalBoundary:NO
                              outputStream:outputStream
                                     error:error]) {
-            [outputStream close];
+            closeOutputStream();
             return NO;
         }
         isFirstPart = NO;
@@ -905,11 +943,18 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
                             hasFinalBoundary:YES
                                 outputStream:outputStream
                                        error:error]) {
-        [outputStream close];
+        closeOutputStream();
         return NO;
     }
-    
-    [outputStream close];
+
+    closeOutputStream();
+
+    if (outputStreamDelegate.hadError) {
+        if (error) {
+            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:nil];
+        }
+        return NO;
+    }
     
     return YES;
 }
@@ -956,6 +1001,10 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     [mutableHeaders setValue:mimeType forKey:@"Content-Type"];
     
     NSInputStream *inputStream = [NSInputStream inputStreamWithURL:inputFileURL];
+    AFStreamDelegate *inputStreamDelegate = [AFStreamDelegate new];
+    inputStream.delegate = inputStreamDelegate;
+    [inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+    [inputStream open];
     if (inputStream.streamStatus != NSStreamStatusOpen) {
         NSDictionary *userInfo = @{NSLocalizedFailureReasonErrorKey: NSLocalizedStringFromTable(@"File URL not reachable.", @"AFNetworking", nil)};
         if (error) {
@@ -964,11 +1013,16 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
         return NO;
     }
     
+    void (^closeInputStream)(void) = ^{
+        [inputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+        [inputStream close];
+    };
+
     NSData *encapsulationBoundaryData = [(hasInitialBoundary
                                           ? AFMultipartFormInitialBoundary(boundary)
                                           : AFMultipartFormEncapsulationBoundary(boundary)) dataUsingEncoding:stringEncoding];
     if (![self writeData:encapsulationBoundaryData outputStream:outputStream error:error]) {
-        [inputStream close];
+        closeInputStream();
         return NO;
     }
     
@@ -978,14 +1032,14 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     NSString *headersString = [self stringForHeaders:headers];
     NSData *headersData = [headersString dataUsingEncoding:stringEncoding];
     if (![self writeData:headersData outputStream:outputStream error:error]) {
-        [inputStream close];
+        closeInputStream();
         return NO;
     }
     
     if (![self writeBodyInputStream:inputStream
                        outputStream:outputStream
                               error:error]) {
-        [inputStream close];
+        closeInputStream();
         return NO;
     }
     
@@ -993,11 +1047,19 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
                                    ? [AFMultipartFormFinalBoundary(boundary) dataUsingEncoding:stringEncoding]
                                    : [NSData data]);
     if (![self writeData:closingBoundaryData outputStream:outputStream error:error]) {
-        [inputStream close];
+        closeInputStream();
         return NO;
     }
     
-    [inputStream close];
+    closeInputStream();
+
+    if (inputStreamDelegate.hadError) {
+        if (error) {
+            *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:nil];
+        }
+        return NO;
+    }
+
     return YES;
 }
 
@@ -1053,7 +1115,14 @@ NSTimeInterval const kAFUploadStream3GSuggestedDelay = 0.2;
     uint8_t buffer[bufferSize];
     
     NSInteger totalBytesReadCount = 0;
-    while (YES) {
+    while ([inputStream hasBytesAvailable]) {
+        if (![outputStream hasSpaceAvailable]) {
+            if (error) {
+                *error = [[NSError alloc] initWithDomain:AFURLRequestSerializationErrorDomain code:NSURLErrorBadURL userInfo:nil];
+            }
+            return NO;
+        }
+        
         NSInteger numberOfBytesRead = [inputStream read:buffer maxLength:bufferSize];
         if (numberOfBytesRead < 0) {
             if (error) {
