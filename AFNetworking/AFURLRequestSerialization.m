@@ -59,6 +59,25 @@ NSString * const AFURLRequestSerializationErrorDomain = @"com.alamofire.error.se
 
 #pragma mark -
 
+@implementation AFMultipartTextPart
+
+- (instancetype)initWithKey:(NSString *)key value:(NSString *)value
+{
+    self = [super init];
+    if (!self) {
+        return self;
+    }
+    
+    _key = key;
+    _value = value;
+    
+    return self;
+}
+
+@end
+
+#pragma mark -
+
 static NSString * AFCreateMultipartFormBoundary() {
     return [NSString stringWithFormat:@"Boundary+%08X%08X", arc4random(), arc4random()];
 }
@@ -91,7 +110,7 @@ static inline NSString * AFMultipartFormFinalBoundary(NSString *boundary) {
                                  fileName:(NSString *)fileName
                                  mimeType:(NSString *)mimeType
                                  boundary:(NSString *)boundary
-                          additionalParts:(NSDictionary<NSString *, NSString *> *)additionalParts
+                                textParts:(NSArray<AFMultipartTextPart *> *)textParts
                                     error:(NSError * __autoreleasing *)error
 {
     NSParameterAssert(inputFileURL);
@@ -133,10 +152,9 @@ static inline NSString * AFMultipartFormFinalBoundary(NSString *boundary) {
     };
 
     BOOL isFirstPart = YES;
-    for (NSString *additionalPartKey in additionalParts) {
-        NSString *additionalPartValue = additionalParts[additionalPartKey];
-        if (![self writeTextPartWithValue:additionalPartValue
-                                     name:additionalPartKey
+    for (AFMultipartTextPart *textPart in textParts) {
+        if (![self writeTextPartWithValue:textPart.value
+                                     name:textPart.key
                                  boundary:boundary
                        hasInitialBoundary:isFirstPart
                          hasFinalBoundary:NO

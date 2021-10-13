@@ -45,6 +45,17 @@ FOUNDATION_EXPORT NSString * const AFURLRequestSerializationErrorDomain;
 
 #pragma mark -
 
+@interface AFMultipartTextPart: NSObject
+
+@property (nonatomic, readonly) NSString *key;
+@property (nonatomic, readonly) NSString *value;
+
+- (instancetype)initWithKey:(NSString *)key value:(NSString *)value;
+
+@end
+
+#pragma mark -
+
 @interface AFMultipartBody: NSObject
 
 + (NSString *)createMultipartFormBoundary;
@@ -55,7 +66,7 @@ FOUNDATION_EXPORT NSString * const AFURLRequestSerializationErrorDomain;
                                  fileName:(NSString *)fileName
                                  mimeType:(NSString *)mimeType
                                  boundary:(NSString *)boundary
-                          additionalParts:(NSDictionary<NSString *, NSString *> *)additionalParts
+                                textParts:(NSArray<AFMultipartTextPart *> *)textParts
                                     error:(NSError * __autoreleasing *)error;
 
 @end
